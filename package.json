@@ -1,0 +1,70 @@
+{
+  "name": "crypto-watcher",
+  "version": "1.0.0",
+  "description": "Live crypto prices desktop widget",
+  "main": "electron/main.js",
+  "type": "module",
+  "license": "MIT",
+  "author": "Crypto Watcher",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "start": "concurrently -k \"vite\" \"wait-on http://127.0.0.1:5173 && electron .\"",
+    "preview": "vite preview",
+    "dist": "vite build && electron-builder --win",
+    "dist:dir": "vite build && electron-builder --win --dir"
+  },
+  "devDependencies": {
+    "concurrently": "^9.1.2",
+    "electron": "^35.1.2",
+    "electron-builder": "^26.0.12",
+    "vite": "^6.2.5",
+    "wait-on": "^8.0.3"
+  },
+  "dependencies": {
+    "sql.js": "^1.14.1"
+  },
+  "build": {
+    "appId": "local.crypto.watcher",
+    "productName": "Crypto Watcher",
+    "directories": {
+      "output": "release",
+      "buildResources": "build"
+    },
+    "icon": "build/icon.ico",
+    "files": [
+      "dist/**/*",
+      "electron/**/*",
+      "src/portfolio.js",
+      "package.json"
+    ],
+    "asarUnpack": [
+      "**/node_modules/sql.js/dist/sql-wasm.wasm"
+    ],
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        },
+        {
+          "target": "portable",
+          "arch": [
+            "x64"
+          ]
+        }
+      ]
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "shortcutName": "Crypto Watcher"
+    },
+    "portable": {
+      "artifactName": "CryptoWatcher-Portable-${version}.${ext}"
+    }
+  }
+}

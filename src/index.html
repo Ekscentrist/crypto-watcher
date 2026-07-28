@@ -1,0 +1,125 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; connect-src 'self' https://api.coingecko.com; style-src 'self' 'unsafe-inline'; img-src 'self' https: data:;" />
+    <title>Crypto Watcher</title>
+    <link rel="stylesheet" href="./style.css" />
+  </head>
+  <body>
+    <section class="summary" id="summaryBar" aria-label="Portfolio summary">
+      <div class="summary-item">
+        <span class="summary-label">Equity</span>
+        <span class="summary-value" id="sumEquity">—</span>
+      </div>
+      <div class="summary-item">
+        <span class="summary-label">uPnL</span>
+        <span class="summary-value" id="sumUnreal">—</span>
+      </div>
+      <div class="summary-item">
+        <span class="summary-label">Realized</span>
+        <span class="summary-value" id="sumReal">—</span>
+      </div>
+      <div class="summary-item">
+        <span class="summary-label">Total</span>
+        <span class="summary-value" id="sumTotal">—</span>
+      </div>
+    </section>
+
+    <header class="toolbar">
+      <nav class="tabs" role="tablist" aria-label="Pages">
+        <button type="button" class="tab active" data-page="prices" role="tab" aria-selected="true">Prices</button>
+        <button type="button" class="tab" data-page="portfolio" role="tab" aria-selected="false">Portfolio</button>
+      </nav>
+      <div class="toolbar-actions">
+        <label class="toggle">
+          <input type="checkbox" id="alwaysOnTop" />
+          <span>On top</span>
+        </label>
+        <button type="button" id="addCoinBtn" class="btn primary">+ Coin</button>
+      </div>
+    </header>
+
+    <main>
+      <section id="pagePrices" class="page" data-page="prices">
+        <ul id="coinList" class="coin-list" aria-live="polite"></ul>
+        <p id="emptyState" class="empty hidden">No coins yet. Click “+ Coin”.</p>
+      </section>
+
+      <section id="pagePortfolio" class="page hidden" data-page="portfolio">
+        <div id="portfolioFilterBar" class="filter-bar hidden">
+          <span id="portfolioFilterLabel" class="filter-label"></span>
+          <button type="button" id="portfolioFilterClear" class="btn tiny">All coins</button>
+        </div>
+        <div class="section-block">
+          <h3 class="section-title">Active trades</h3>
+          <ul id="activeList" class="active-list"></ul>
+          <p id="activeEmpty" class="empty-inline">No open buys. Add a Buy from the Prices tab.</p>
+        </div>
+        <div class="section-block">
+          <h3 class="section-title">Closed history</h3>
+          <ul id="historyList" class="trades-list"></ul>
+          <p id="historyEmpty" class="empty-inline hidden">No closed trades yet.</p>
+        </div>
+      </section>
+    </main>
+
+    <footer class="status">
+      <span id="statusText">Loading…</span>
+      <button type="button" id="refreshBtn" class="btn ghost" title="Refresh now">↻</button>
+    </footer>
+
+    <dialog id="addDialog" class="dialog">
+      <form method="dialog" id="addForm">
+        <h2>Add coin</h2>
+        <input
+          type="search"
+          id="coinSearch"
+          placeholder="Search BTC, ethereum, sol…"
+          autocomplete="off"
+          autofocus
+        />
+        <ul id="searchResults" class="search-results"></ul>
+        <div class="dialog-actions">
+          <button type="submit" value="cancel" class="btn ghost">Close</button>
+        </div>
+      </form>
+    </dialog>
+
+    <dialog id="tradeDialog" class="dialog">
+      <form id="tradeForm">
+        <h2 id="tradeTitle">Buy</h2>
+        <p id="tradeHint" class="trade-hint hidden"></p>
+        <label class="field" id="tradeQtyField">
+          <span>Quantity</span>
+          <input type="number" id="tradeQty" step="any" min="0" required placeholder="0.01" />
+        </label>
+        <label class="field">
+          <span id="tradePriceLabel">Price (USD)</span>
+          <input type="number" id="tradePrice" step="any" min="0" required placeholder="65000" />
+        </label>
+        <p id="tradePreview" class="trade-preview hidden"></p>
+        <p id="tradeSuccess" class="trade-success hidden"></p>
+        <p id="tradeError" class="form-error hidden"></p>
+        <div class="dialog-actions">
+          <button type="button" id="tradeCancel" class="btn ghost">Cancel</button>
+          <button type="submit" class="btn primary" id="tradeSubmit">Save</button>
+        </div>
+      </form>
+    </dialog>
+
+    <dialog id="confirmDialog" class="dialog">
+      <form id="confirmForm" method="dialog">
+        <h2>Confirm</h2>
+        <p id="confirmMessage" class="confirm-message"></p>
+        <div class="dialog-actions">
+          <button type="submit" value="cancel" class="btn ghost" id="confirmCancel">Cancel</button>
+          <button type="submit" value="ok" class="btn primary" id="confirmOk">Delete</button>
+        </div>
+      </form>
+    </dialog>
+
+    <script type="module" src="./main.js"></script>
+  </body>
+</html>
