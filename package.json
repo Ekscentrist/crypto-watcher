@@ -6,6 +6,10 @@
   "type": "module",
   "license": "MIT",
   "author": "Crypto Watcher",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Ekscentrist/crypto-watcher.git"
+  },
   "scripts": {
     "dev": "vite",
     "build": "vite build",
