@@ -11,6 +11,7 @@ import {
   lotUnrealizedPnl,
   normalizeExchange,
   rebuildPositions,
+  rebuildStakedPositions,
   setTradeExchange,
   stakeLot,
   unstakeLot,
@@ -310,7 +311,7 @@ function refreshPortfolio() {
   const scopedTrades = useFilter ? scopeTrades(trades) : trades;
 
   if (currentPage === 'history') {
-    const closedOnly = (useFilter ? scopedTrades : trades).filter((t) => !isOpen(t));
+    const closedOnly = scopedTrades.filter((t) => !isOpen(t));
     const scoped = rebuildPositions(closedOnly);
     if (scoped.error) console.warn(scoped.error);
     let realizedPnl = 0;
@@ -324,8 +325,18 @@ function refreshPortfolio() {
       realizedPnl,
       totalPnl: realizedPnl,
     });
-  } else {
+  } else if (currentPage === 'staked') {
+    const scoped = rebuildStakedPositions(scopedTrades);
+    if (scoped.error) console.warn(scoped.error);
+    const summary = computeSummary(applyMarks(scoped.positions, marks));
+    renderSummary(summary);
+  } else if (currentPage === 'portfolio') {
     const scoped = rebuildPositions(scopedTrades);
+    if (scoped.error) console.warn(scoped.error);
+    const summary = computeSummary(applyMarks(scoped.positions, marks));
+    renderSummary(summary);
+  } else {
+    const scoped = rebuildPositions(trades);
     if (scoped.error) console.warn(scoped.error);
     const summary = computeSummary(applyMarks(scoped.positions, marks));
     renderSummary(summary);

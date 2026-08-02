@@ -133,6 +133,52 @@ export function rebuildPositions(trades) {
 }
 
 /**
+ * Aggregate only open staked lots per coin (for Staked tab summary).
+ * @param {Trade[]} trades
+ * @returns {{ positions: Map<string, PositionBase>, error: string|null }}
+ */
+export function rebuildStakedPositions(trades) {
+  /** @type {Map<string, PositionBase>} */
+  const positions = new Map();
+
+  for (const t of trades) {
+    if (!isOpen(t) || !isStaked(t)) continue;
+
+    const qty = Number(t.qty);
+    const price = Number(t.price);
+    if (!(qty > 0) || !(price > 0)) {
+      return { positions, error: `Invalid trade ${t.id}` };
+    }
+
+    let pos = positions.get(t.coinId);
+    if (!pos) {
+      pos = {
+        coinId: t.coinId,
+        qty: 0,
+        avgCost: 0,
+        costBasis: 0,
+        realizedPnl: 0,
+        boughtQty: 0,
+        soldQty: 0,
+        openLots: 0,
+      };
+      positions.set(t.coinId, pos);
+    }
+
+    pos.boughtQty += qty;
+    pos.qty += qty;
+    pos.costBasis += qty * price;
+    pos.openLots += 1;
+  }
+
+  for (const pos of positions.values()) {
+    pos.avgCost = pos.qty > 0 ? pos.costBasis / pos.qty : 0;
+  }
+
+  return { positions, error: null };
+}
+
+/**
  * @param {Map<string, PositionBase>} positions
  * @param {Map<string, number>|Record<string, number>} marks
  * @returns {Map<string, Position>}
