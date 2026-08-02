@@ -32,6 +32,7 @@
         <button type="button" class="tab active" data-page="prices" role="tab" aria-selected="true">Prices</button>
         <button type="button" class="tab" data-page="portfolio" role="tab" aria-selected="false">Portfolio</button>
         <button type="button" class="tab" data-page="staked" role="tab" aria-selected="false">Staked</button>
+        <button type="button" class="tab" data-page="history" role="tab" aria-selected="false">History</button>
       </nav>
       <div class="toolbar-actions">
         <label class="toggle">
@@ -54,14 +55,8 @@
           <button type="button" id="portfolioFilterClear" class="btn tiny">All coins</button>
         </div>
         <div class="section-block">
-          <h3 class="section-title">Active trades</h3>
           <ul id="activeList" class="active-list"></ul>
           <p id="activeEmpty" class="empty-inline">No open buys. Add a Buy from the Prices tab.</p>
-        </div>
-        <div class="section-block">
-          <h3 class="section-title">Closed history</h3>
-          <ul id="historyList" class="trades-list"></ul>
-          <p id="historyEmpty" class="empty-inline hidden">No closed trades yet.</p>
         </div>
       </section>
 
@@ -71,9 +66,20 @@
           <button type="button" id="stakedFilterClear" class="btn tiny">All coins</button>
         </div>
         <div class="section-block">
-          <h3 class="section-title">Staked trades</h3>
           <ul id="stakedList" class="active-list"></ul>
           <p id="stakedEmpty" class="empty-inline">No staked trades.</p>
+        </div>
+      </section>
+
+      <section id="pageHistory" class="page hidden" data-page="history">
+        <div id="historyFilterBar" class="filter-bar hidden">
+          <span id="historyFilterLabel" class="filter-label"></span>
+          <button type="button" id="historyFilterClear" class="btn tiny">All coins</button>
+        </div>
+        <ul id="historyCoinPnl" class="history-coin-pnl hidden" aria-label="Realized by coin"></ul>
+        <div class="section-block">
+          <ul id="historyList" class="trades-list"></ul>
+          <p id="historyEmpty" class="empty-inline hidden">No closed trades yet.</p>
         </div>
       </section>
     </main>

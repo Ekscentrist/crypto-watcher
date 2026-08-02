@@ -37,10 +37,12 @@ const searchResultsEl = document.getElementById('searchResults');
 const pagePricesEl = document.getElementById('pagePrices');
 const pagePortfolioEl = document.getElementById('pagePortfolio');
 const pageStakedEl = document.getElementById('pageStaked');
+const pageHistoryEl = document.getElementById('pageHistory');
 const activeListEl = document.getElementById('activeList');
 const activeEmptyEl = document.getElementById('activeEmpty');
 const historyListEl = document.getElementById('historyList');
 const historyEmptyEl = document.getElementById('historyEmpty');
+const historyCoinPnlEl = document.getElementById('historyCoinPnl');
 const portfolioFilterBar = document.getElementById('portfolioFilterBar');
 const portfolioFilterLabel = document.getElementById('portfolioFilterLabel');
 const portfolioFilterClear = document.getElementById('portfolioFilterClear');
@@ -49,6 +51,9 @@ const stakedEmptyEl = document.getElementById('stakedEmpty');
 const stakedFilterBar = document.getElementById('stakedFilterBar');
 const stakedFilterLabel = document.getElementById('stakedFilterLabel');
 const stakedFilterClear = document.getElementById('stakedFilterClear');
+const historyFilterBar = document.getElementById('historyFilterBar');
+const historyFilterLabel = document.getElementById('historyFilterLabel');
+const historyFilterClear = document.getElementById('historyFilterClear');
 
 const sumEquityEl = document.getElementById('sumEquity');
 const sumUnrealEl = document.getElementById('sumUnreal');
@@ -97,7 +102,7 @@ let lastUpdatedAt = null;
 let pollTimer = null;
 let searchTimer = null;
 let fetching = false;
-/** @type {'prices' | 'portfolio' | 'staked'} */
+/** @type {'prices' | 'portfolio' | 'staked' | 'history'} */
 let currentPage = 'prices';
 /** @type {string | null} */
 let portfolioFilterCoinId = null;
@@ -300,22 +305,42 @@ function refreshPortfolio() {
 
   positionsById = applyMarks(positions, marks);
 
-  const useFilter =
-    (currentPage === 'portfolio' || currentPage === 'staked') &&
-    (portfolioFilterCoinId || portfolioFilterExchange);
+  const listPages = currentPage === 'portfolio' || currentPage === 'staked' || currentPage === 'history';
+  const useFilter = listPages && (portfolioFilterCoinId || portfolioFilterExchange);
   const scopedTrades = useFilter ? scopeTrades(trades) : trades;
-  const scoped = rebuildPositions(scopedTrades);
-  if (scoped.error) console.warn(scoped.error);
-  const summary = computeSummary(applyMarks(scoped.positions, marks));
-  renderSummary(summary);
+
+  if (currentPage === 'history') {
+    const closedOnly = (useFilter ? scopedTrades : trades).filter((t) => !isOpen(t));
+    const scoped = rebuildPositions(closedOnly);
+    if (scoped.error) console.warn(scoped.error);
+    let realizedPnl = 0;
+    for (const pos of scoped.positions.values()) {
+      realizedPnl += pos.realizedPnl;
+    }
+    renderSummary({
+      equity: null,
+      costBasis: 0,
+      unrealizedPnl: null,
+      realizedPnl,
+      totalPnl: realizedPnl,
+    });
+  } else {
+    const scoped = rebuildPositions(scopedTrades);
+    if (scoped.error) console.warn(scoped.error);
+    const summary = computeSummary(applyMarks(scoped.positions, marks));
+    renderSummary(summary);
+  }
+
   updatePortfolioFilterBar();
   updateStakedFilterBar();
+  updateHistoryFilterBar();
 }
 
 function refreshViews() {
   renderList();
   renderPortfolio();
   renderStaked();
+  renderHistory();
 }
 
 function scopeTrades(list) {
@@ -373,6 +398,10 @@ function updateStakedFilterBar() {
   updateFilterBar(stakedFilterBar, stakedFilterLabel, stakedFilterClear, 'staked');
 }
 
+function updateHistoryFilterBar() {
+  updateFilterBar(historyFilterBar, historyFilterLabel, historyFilterClear, 'history');
+}
+
 function openCoinPortfolio(coinId) {
   portfolioFilterCoinId = coinId;
   portfolioFilterExchange = null;
@@ -385,6 +414,7 @@ function filterByExchange(exchange) {
   portfolioFilterExchange = ex;
   if (currentPage === 'portfolio') renderPortfolio();
   else if (currentPage === 'staked') renderStaked();
+  else if (currentPage === 'history') renderHistory();
   else refreshPortfolio();
 }
 
@@ -393,6 +423,7 @@ function filterByCoin(coinId) {
   portfolioFilterCoinId = String(coinId);
   if (currentPage === 'portfolio') renderPortfolio();
   else if (currentPage === 'staked') renderStaked();
+  else if (currentPage === 'history') renderHistory();
   else refreshPortfolio();
 }
 
@@ -403,24 +434,30 @@ function clearPortfolioFilter() {
     renderPortfolio();
   } else if (currentPage === 'staked') {
     renderStaked();
+  } else if (currentPage === 'history') {
+    renderHistory();
   } else {
     refreshPortfolio();
   }
 }
 
 function showPage(page, { keepFilter = false } = {}) {
-  if (page === 'portfolio' || page === 'staked') {
+  if (page === 'portfolio' || page === 'staked' || page === 'history') {
     currentPage = page;
   } else {
     currentPage = 'prices';
   }
-  if ((currentPage === 'portfolio' || currentPage === 'staked') && !keepFilter) {
+  if (
+    (currentPage === 'portfolio' || currentPage === 'staked' || currentPage === 'history') &&
+    !keepFilter
+  ) {
     portfolioFilterCoinId = null;
     portfolioFilterExchange = null;
   }
   pagePricesEl.classList.toggle('hidden', currentPage !== 'prices');
   pagePortfolioEl.classList.toggle('hidden', currentPage !== 'portfolio');
   pageStakedEl.classList.toggle('hidden', currentPage !== 'staked');
+  pageHistoryEl.classList.toggle('hidden', currentPage !== 'history');
   for (const btn of document.querySelectorAll('.tab')) {
     const active = btn.dataset.page === currentPage;
     btn.classList.toggle('active', active);
@@ -428,6 +465,7 @@ function showPage(page, { keepFilter = false } = {}) {
   }
   if (currentPage === 'portfolio') renderPortfolio();
   else if (currentPage === 'staked') renderStaked();
+  else if (currentPage === 'history') renderHistory();
   else refreshPortfolio();
 }
 
@@ -495,21 +533,13 @@ function emptyFilterMessage(kind) {
 function renderPortfolio() {
   refreshPortfolio();
   activeListEl.innerHTML = '';
-  historyListEl.innerHTML = '';
 
   const scoped = scopeTrades(trades);
-
   const openLots = scoped.filter(isActiveOpen).sort((a, b) => b.time - a.time);
-  const closedLots = scoped
-    .filter((t) => !isOpen(t))
-    .sort((a, b) => (b.sellTime || b.time) - (a.sellTime || a.time));
 
   activeEmptyEl.classList.toggle('hidden', openLots.length > 0);
-  historyEmptyEl.classList.toggle('hidden', closedLots.length > 0);
   activeEmptyEl.textContent =
     emptyFilterMessage('open buys') || 'No open buys. Add a Buy from the Prices tab.';
-  historyEmptyEl.textContent =
-    emptyFilterMessage('closed trades') || 'No closed trades yet.';
 
   for (const lot of openLots) {
     const coin = coins.find((c) => c.id === lot.coinId);
@@ -592,6 +622,69 @@ function renderPortfolio() {
     li.append(head, stats, actions);
     activeListEl.appendChild(li);
   }
+}
+
+function realizedByCoin(closedLots) {
+  /** @type {Map<string, { coinId: string, symbol: string, realizedPnl: number }>} */
+  const map = new Map();
+  for (const lot of closedLots) {
+    const coin = coins.find((c) => c.id === lot.coinId);
+    const symbol = (coin?.symbol || lot.symbol || lot.coinId).toUpperCase();
+    const pnl = lotRealizedPnl(lot) ?? 0;
+    const prev = map.get(lot.coinId);
+    if (prev) prev.realizedPnl += pnl;
+    else map.set(lot.coinId, { coinId: lot.coinId, symbol, realizedPnl: pnl });
+  }
+  return [...map.values()].sort(
+    (a, b) => Math.abs(b.realizedPnl) - Math.abs(a.realizedPnl) || a.symbol.localeCompare(b.symbol),
+  );
+}
+
+function renderHistoryCoinPnl(closedLots) {
+  if (!historyCoinPnlEl) return;
+  historyCoinPnlEl.innerHTML = '';
+  if (!hasListFilter()) {
+    historyCoinPnlEl.classList.add('hidden');
+    return;
+  }
+  const rows = realizedByCoin(closedLots);
+  if (!rows.length) {
+    historyCoinPnlEl.classList.add('hidden');
+    return;
+  }
+  historyCoinPnlEl.classList.remove('hidden');
+  for (const row of rows) {
+    const li = document.createElement('li');
+    li.className = 'history-coin-pnl-item';
+    const sym = document.createElement('button');
+    sym.type = 'button';
+    sym.className = 'coin-chip';
+    sym.textContent = row.symbol;
+    sym.title = `Show only ${row.symbol}`;
+    sym.addEventListener('click', () => filterByCoin(row.coinId));
+    const pnl = document.createElement('span');
+    pnl.className = `pnl ${pnlClass(row.realizedPnl)}`;
+    pnl.textContent = formatMoney(row.realizedPnl);
+    li.append(sym, pnl);
+    historyCoinPnlEl.appendChild(li);
+  }
+}
+
+function renderHistory() {
+  refreshPortfolio();
+  if (!historyListEl) return;
+  historyListEl.innerHTML = '';
+
+  const scoped = scopeTrades(trades);
+  const closedLots = scoped
+    .filter((t) => !isOpen(t))
+    .sort((a, b) => (b.sellTime || b.time) - (a.sellTime || a.time));
+
+  historyEmptyEl.classList.toggle('hidden', closedLots.length > 0);
+  historyEmptyEl.textContent =
+    emptyFilterMessage('closed trades') || 'No closed trades yet.';
+
+  renderHistoryCoinPnl(closedLots);
 
   for (const lot of closedLots) {
     const li = document.createElement('li');
@@ -1189,6 +1282,7 @@ document.querySelectorAll('.tab').forEach((btn) => {
 
 portfolioFilterClear?.addEventListener('click', () => clearPortfolioFilter());
 stakedFilterClear?.addEventListener('click', () => clearPortfolioFilter());
+historyFilterClear?.addEventListener('click', () => clearPortfolioFilter());
 
 coinListEl.addEventListener('dragover', (e) => {
   if (!dragCoinId) return;
