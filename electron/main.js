@@ -31,9 +31,9 @@ let mainWindow = null;
 
 function createWindow() {
   mainWindow = new BrowserWindow({
-    width: 440,
+    width: 520,
     height: 640,
-    minWidth: 360,
+    minWidth: 400,
     minHeight: 460,
     backgroundColor: '#0f1419',
     title: 'Crypto Watcher',
