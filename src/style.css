@@ -219,18 +219,33 @@ option {
   flex-wrap: wrap;
 }
 
+.trade-prefix {
+  font: inherit;
+  font-weight: inherit;
+}
+
+.coin-chip,
 .exchange-chip {
   border: none;
   background: transparent;
-  color: var(--muted);
   font: inherit;
-  font-size: 11px;
-  font-weight: 500;
   line-height: 1;
   padding: 0;
   cursor: pointer;
 }
 
+.coin-chip {
+  color: inherit;
+  font-weight: inherit;
+}
+
+.exchange-chip {
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 500;
+}
+
+.coin-chip:hover,
 .exchange-chip:hover {
   color: var(--accent);
 }

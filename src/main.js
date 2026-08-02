@@ -388,6 +388,14 @@ function filterByExchange(exchange) {
   else refreshPortfolio();
 }
 
+function filterByCoin(coinId) {
+  if (!coinId) return;
+  portfolioFilterCoinId = String(coinId);
+  if (currentPage === 'portfolio') renderPortfolio();
+  else if (currentPage === 'staked') renderStaked();
+  else refreshPortfolio();
+}
+
 function clearPortfolioFilter() {
   portfolioFilterCoinId = null;
   portfolioFilterExchange = null;
@@ -438,12 +446,34 @@ function createExchangeChip(lot) {
   return btn;
 }
 
+function createCoinChip(symbol, coinId) {
+  if (!coinId || !symbol) return null;
+  const btn = document.createElement('button');
+  btn.type = 'button';
+  btn.className = 'coin-chip';
+  btn.textContent = symbol;
+  btn.title = `Show only ${symbol}`;
+  btn.addEventListener('click', (e) => {
+    e.stopPropagation();
+    filterByCoin(coinId);
+  });
+  return btn;
+}
+
 function createTradeTitle(prefix, symbol, lot) {
   const row = document.createElement('div');
   row.className = 'coin-symbol trade-title-row';
-  const text = document.createElement('span');
-  text.textContent = `${prefix} ${symbol}`;
-  row.appendChild(text);
+  const prefixEl = document.createElement('span');
+  prefixEl.className = 'trade-prefix';
+  prefixEl.textContent = prefix;
+  row.appendChild(prefixEl);
+  const coinChip = createCoinChip(symbol, lot.coinId);
+  if (coinChip) row.appendChild(coinChip);
+  else {
+    const fallback = document.createElement('span');
+    fallback.textContent = symbol;
+    row.appendChild(fallback);
+  }
   const chip = createExchangeChip(lot);
   if (chip) row.appendChild(chip);
   return row;
@@ -574,9 +604,16 @@ function renderPortfolio() {
     const left = document.createElement('div');
     const title = document.createElement('div');
     title.className = 'trade-title-row';
-    const titleText = document.createElement('span');
-    titleText.textContent = `${label} · ${formatQty(lot.qty)}`;
-    title.appendChild(titleText);
+    const coinChip = createCoinChip(label, lot.coinId);
+    if (coinChip) title.appendChild(coinChip);
+    else {
+      const titleText = document.createElement('span');
+      titleText.textContent = label;
+      title.appendChild(titleText);
+    }
+    const qtyEl = document.createElement('span');
+    qtyEl.textContent = `· ${formatQty(lot.qty)}`;
+    title.appendChild(qtyEl);
     const chip = createExchangeChip(lot);
     if (chip) title.appendChild(chip);
     const meta = document.createElement('div');
