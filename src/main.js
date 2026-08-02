@@ -2,10 +2,14 @@ import {
   applyMarks,
   closeLot,
   computeSummary,
+  isActiveOpen,
   isOpen,
+  isStaked,
   lotRealizedPnl,
   lotUnrealizedPnl,
   rebuildPositions,
+  stakeLot,
+  unstakeLot,
   validateBuy,
   validateClose,
 } from './portfolio.js';
@@ -28,6 +32,7 @@ const searchResultsEl = document.getElementById('searchResults');
 
 const pagePricesEl = document.getElementById('pagePrices');
 const pagePortfolioEl = document.getElementById('pagePortfolio');
+const pageStakedEl = document.getElementById('pageStaked');
 const activeListEl = document.getElementById('activeList');
 const activeEmptyEl = document.getElementById('activeEmpty');
 const historyListEl = document.getElementById('historyList');
@@ -35,6 +40,11 @@ const historyEmptyEl = document.getElementById('historyEmpty');
 const portfolioFilterBar = document.getElementById('portfolioFilterBar');
 const portfolioFilterLabel = document.getElementById('portfolioFilterLabel');
 const portfolioFilterClear = document.getElementById('portfolioFilterClear');
+const stakedListEl = document.getElementById('stakedList');
+const stakedEmptyEl = document.getElementById('stakedEmpty');
+const stakedFilterBar = document.getElementById('stakedFilterBar');
+const stakedFilterLabel = document.getElementById('stakedFilterLabel');
+const stakedFilterClear = document.getElementById('stakedFilterClear');
 
 const sumEquityEl = document.getElementById('sumEquity');
 const sumUnrealEl = document.getElementById('sumUnreal');
@@ -73,7 +83,7 @@ let lastUpdatedAt = null;
 let pollTimer = null;
 let searchTimer = null;
 let fetching = false;
-/** @type {'prices' | 'portfolio'} */
+/** @type {'prices' | 'portfolio' | 'staked'} */
 let currentPage = 'prices';
 /** @type {string | null} */
 let portfolioFilterCoinId = null;
@@ -248,7 +258,8 @@ function refreshPortfolio() {
 
   positionsById = applyMarks(positions, marks);
 
-  const useFilter = currentPage === 'portfolio' && portfolioFilterCoinId;
+  const useFilter =
+    (currentPage === 'portfolio' || currentPage === 'staked') && portfolioFilterCoinId;
   const scopedTrades = useFilter
     ? trades.filter((t) => t.coinId === portfolioFilterCoinId)
     : trades;
@@ -257,16 +268,18 @@ function refreshPortfolio() {
   const summary = computeSummary(applyMarks(scoped.positions, marks));
   renderSummary(summary);
   updatePortfolioFilterBar();
+  updateStakedFilterBar();
 }
 
 function refreshViews() {
   renderList();
   renderPortfolio();
+  renderStaked();
 }
 
 function updatePortfolioFilterBar() {
   if (!portfolioFilterBar) return;
-  if (!portfolioFilterCoinId) {
+  if (currentPage !== 'portfolio' || !portfolioFilterCoinId) {
     portfolioFilterBar.classList.add('hidden');
     return;
   }
@@ -275,6 +288,19 @@ function updatePortfolioFilterBar() {
   const name = coin?.name || portfolioFilterCoinId;
   portfolioFilterLabel.textContent = `${label} · ${name}`;
   portfolioFilterBar.classList.remove('hidden');
+}
+
+function updateStakedFilterBar() {
+  if (!stakedFilterBar) return;
+  if (currentPage !== 'staked' || !portfolioFilterCoinId) {
+    stakedFilterBar.classList.add('hidden');
+    return;
+  }
+  const coin = coins.find((c) => c.id === portfolioFilterCoinId);
+  const label = (coin?.symbol || portfolioFilterCoinId).toUpperCase();
+  const name = coin?.name || portfolioFilterCoinId;
+  stakedFilterLabel.textContent = `${label} · ${name}`;
+  stakedFilterBar.classList.remove('hidden');
 }
 
 function openCoinPortfolio(coinId) {
@@ -286,24 +312,32 @@ function clearPortfolioFilter() {
   portfolioFilterCoinId = null;
   if (currentPage === 'portfolio') {
     renderPortfolio();
+  } else if (currentPage === 'staked') {
+    renderStaked();
   } else {
     refreshPortfolio();
   }
 }
 
 function showPage(page, { keepFilter = false } = {}) {
-  currentPage = page === 'portfolio' ? 'portfolio' : 'prices';
-  if (currentPage === 'portfolio' && !keepFilter) {
+  if (page === 'portfolio' || page === 'staked') {
+    currentPage = page;
+  } else {
+    currentPage = 'prices';
+  }
+  if ((currentPage === 'portfolio' || currentPage === 'staked') && !keepFilter) {
     portfolioFilterCoinId = null;
   }
   pagePricesEl.classList.toggle('hidden', currentPage !== 'prices');
   pagePortfolioEl.classList.toggle('hidden', currentPage !== 'portfolio');
+  pageStakedEl.classList.toggle('hidden', currentPage !== 'staked');
   for (const btn of document.querySelectorAll('.tab')) {
     const active = btn.dataset.page === currentPage;
     btn.classList.toggle('active', active);
     btn.setAttribute('aria-selected', active ? 'true' : 'false');
   }
   if (currentPage === 'portfolio') renderPortfolio();
+  else if (currentPage === 'staked') renderStaked();
   else refreshPortfolio();
 }
 
@@ -316,7 +350,7 @@ function renderPortfolio() {
     ? trades.filter((t) => t.coinId === portfolioFilterCoinId)
     : trades;
 
-  const openLots = scoped.filter(isOpen).sort((a, b) => b.time - a.time);
+  const openLots = scoped.filter(isActiveOpen).sort((a, b) => b.time - a.time);
   const closedLots = scoped
     .filter((t) => !isOpen(t))
     .sort((a, b) => (b.sellTime || b.time) - (a.sellTime || a.time));
@@ -363,6 +397,21 @@ function renderPortfolio() {
     sellBtn.textContent = 'Sell';
     sellBtn.addEventListener('click', () => openCloseDialog(lot));
 
+    const stakeBtn = document.createElement('button');
+    stakeBtn.type = 'button';
+    stakeBtn.className = 'btn tiny';
+    stakeBtn.textContent = 'Stake';
+    stakeBtn.addEventListener('click', async () => {
+      const result = stakeLot(trades, lot.id);
+      if (result.error) {
+        setStatus(result.error, true);
+        return;
+      }
+      trades = result.trades;
+      await saveTrades();
+      refreshViews();
+    });
+
     const delBtn = document.createElement('button');
     delBtn.type = 'button';
     delBtn.className = 'btn tiny';
@@ -378,7 +427,7 @@ function renderPortfolio() {
       refreshViews();
     });
 
-    actions.append(sellBtn, delBtn);
+    actions.append(sellBtn, stakeBtn, delBtn);
     li.append(head, stats, actions);
     activeListEl.appendChild(li);
   }
@@ -409,6 +458,88 @@ function renderPortfolio() {
     });
     li.appendChild(del);
     historyListEl.appendChild(li);
+  }
+}
+
+function renderStaked() {
+  refreshPortfolio();
+  if (!stakedListEl) return;
+  stakedListEl.innerHTML = '';
+
+  const scoped = portfolioFilterCoinId
+    ? trades.filter((t) => t.coinId === portfolioFilterCoinId)
+    : trades;
+
+  const stakedLots = scoped
+    .filter((t) => isOpen(t) && isStaked(t))
+    .sort((a, b) => b.time - a.time);
+
+  stakedEmptyEl.classList.toggle('hidden', stakedLots.length > 0);
+  stakedEmptyEl.textContent = portfolioFilterCoinId
+    ? 'No staked trades for this coin.'
+    : 'No staked trades.';
+
+  for (const lot of stakedLots) {
+    const coin = coins.find((c) => c.id === lot.coinId);
+    const mark = marketById.get(lot.coinId)?.current_price ?? null;
+    const uPnL =
+      mark == null ? null : (Number(mark) - Number(lot.price)) * Number(lot.qty);
+    const li = document.createElement('li');
+    li.className = 'active-card';
+
+    const head = document.createElement('div');
+    head.className = 'active-head';
+    head.innerHTML = `
+      <div>
+        <div class="coin-symbol">STAKED ${(coin?.symbol || lot.symbol || '').toUpperCase()}</div>
+        <div class="coin-name">${escapeHtml(coin?.name || lot.coinId)} · ${escapeHtml(new Date(lot.time).toLocaleString())}</div>
+      </div>
+      <div class="active-mark">${formatPrice(mark)}</div>
+    `;
+
+    const stats = document.createElement('div');
+    stats.className = 'active-stats';
+    stats.innerHTML = `
+      <span>${formatQty(lot.qty)} @ ${formatPrice(lot.price)}</span>
+      <span class="pnl ${pnlClass(uPnL)}">uPnL ${formatMoney(uPnL)}</span>
+    `;
+
+    const actions = document.createElement('div');
+    actions.className = 'position-actions';
+
+    const unstakeBtn = document.createElement('button');
+    unstakeBtn.type = 'button';
+    unstakeBtn.className = 'btn tiny primary';
+    unstakeBtn.textContent = 'Unstake';
+    unstakeBtn.addEventListener('click', async () => {
+      const result = unstakeLot(trades, lot.id);
+      if (result.error) {
+        setStatus(result.error, true);
+        return;
+      }
+      trades = result.trades;
+      await saveTrades();
+      refreshViews();
+    });
+
+    const delBtn = document.createElement('button');
+    delBtn.type = 'button';
+    delBtn.className = 'btn tiny';
+    delBtn.textContent = 'Delete';
+    delBtn.addEventListener('click', async () => {
+      const ok = await askConfirm(
+        `Delete this staked trade (${formatQty(lot.qty)} @ ${formatPrice(lot.price)})?`,
+        'Delete',
+      );
+      if (!ok) return;
+      trades = trades.filter((x) => x.id !== lot.id);
+      await saveTrades();
+      refreshViews();
+    });
+
+    actions.append(unstakeBtn, delBtn);
+    li.append(head, stats, actions);
+    stakedListEl.appendChild(li);
   }
 }
 
@@ -748,6 +879,7 @@ tradeForm.addEventListener('submit', async (e) => {
       time: Date.now(),
       sellPrice: null,
       sellTime: null,
+      staked: false,
     });
     await saveTrades();
     showTradeSuccess(
@@ -805,6 +937,7 @@ document.querySelectorAll('.tab').forEach((btn) => {
 });
 
 portfolioFilterClear?.addEventListener('click', () => clearPortfolioFilter());
+stakedFilterClear?.addEventListener('click', () => clearPortfolioFilter());
 
 coinListEl.addEventListener('dragover', (e) => {
   if (!dragCoinId) return;

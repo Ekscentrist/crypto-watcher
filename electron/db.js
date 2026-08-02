@@ -96,6 +96,9 @@ function migrateTradesSchemaToLots() {
   if (!cols.includes('sell_time')) {
     run('ALTER TABLE trades ADD COLUMN sell_time INTEGER');
   }
+  if (!cols.includes('staked')) {
+    run('ALTER TABLE trades ADD COLUMN staked INTEGER NOT NULL DEFAULT 0');
+  }
 
   if (getMeta('lots_model_v1', '0') === '1') {
     persist();
@@ -103,7 +106,9 @@ function migrateTradesSchemaToLots() {
   }
 
   const raw = all(
-    'SELECT id, coin_id AS coinId, symbol, side, qty, price, time, sell_price AS sellPrice, sell_time AS sellTime FROM trades',
+    `SELECT id, coin_id AS coinId, symbol, side, qty, price, time,
+            sell_price AS sellPrice, sell_time AS sellTime, staked
+     FROM trades`,
   );
 
   const mapped = raw.map((t) => ({
@@ -116,6 +121,7 @@ function migrateTradesSchemaToLots() {
     time: Number(t.time),
     sellPrice: t.sellPrice == null || t.sellPrice === '' ? null : Number(t.sellPrice),
     sellTime: t.sellTime == null || t.sellTime === '' ? null : Number(t.sellTime),
+    staked: Boolean(Number(t.staked)),
   }));
 
   const hasLegacySells = mapped.some((t) => t.side === 'sell');
@@ -132,12 +138,13 @@ function migrateTradesSchemaToLots() {
           time: t.time,
           sellPrice: t.sellPrice,
           sellTime: t.sellTime,
+          staked: Boolean(t.staked),
         }));
 
   run('DELETE FROM trades');
   for (const t of lots) {
     run(
-      'INSERT INTO trades (id, coin_id, symbol, side, qty, price, time, sell_price, sell_time) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
+      'INSERT INTO trades (id, coin_id, symbol, side, qty, price, time, sell_price, sell_time, staked) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
       [
         t.id,
         t.coinId,
@@ -148,6 +155,7 @@ function migrateTradesSchemaToLots() {
         Number(t.time),
         t.sellPrice == null ? null : Number(t.sellPrice),
         t.sellTime == null ? null : Number(t.sellTime),
+        t.staked ? 1 : 0,
       ],
     );
   }
@@ -192,7 +200,8 @@ export async function openDatabase() {
       price REAL NOT NULL,
       time INTEGER NOT NULL,
       sell_price REAL,
-      sell_time INTEGER
+      sell_time INTEGER,
+      staked INTEGER NOT NULL DEFAULT 0
     );
   `);
   run(`
@@ -241,7 +250,7 @@ export function getState() {
   );
   const tradeRows = all(
     `SELECT id, coin_id AS coinId, symbol, qty, price, time,
-            sell_price AS sellPrice, sell_time AS sellTime
+            sell_price AS sellPrice, sell_time AS sellTime, staked
      FROM trades
      ORDER BY time ASC, id ASC`,
   );
@@ -269,6 +278,7 @@ export function getState() {
       time: Number(t.time),
       sellPrice: t.sellPrice == null || t.sellPrice === '' ? null : Number(t.sellPrice),
       sellTime: t.sellTime == null || t.sellTime === '' ? null : Number(t.sellTime),
+      staked: Boolean(Number(t.staked)),
     })),
   };
 }
@@ -293,7 +303,7 @@ export function saveTrades(trades) {
   const list = Array.isArray(trades) ? trades : [];
   for (const t of list) {
     run(
-      'INSERT INTO trades (id, coin_id, symbol, side, qty, price, time, sell_price, sell_time) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
+      'INSERT INTO trades (id, coin_id, symbol, side, qty, price, time, sell_price, sell_time, staked) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
       [
         String(t.id),
         String(t.coinId),
@@ -304,6 +314,7 @@ export function saveTrades(trades) {
         Number(t.time) || Date.now(),
         t.sellPrice == null || t.sellPrice === '' ? null : Number(t.sellPrice),
         t.sellTime == null || t.sellTime === '' ? null : Number(t.sellTime),
+        t.staked ? 1 : 0,
       ],
     );
   }
@@ -345,6 +356,7 @@ export function migrateFromLocalStorage(payload) {
       time: Number(t.time) || Date.now(),
       sellPrice: t.sellPrice == null ? null : Number(t.sellPrice),
       sellTime: t.sellTime == null ? null : Number(t.sellTime),
+      staked: Boolean(t.staked),
     }));
   }
 

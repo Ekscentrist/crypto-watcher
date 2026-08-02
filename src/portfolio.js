@@ -12,6 +12,7 @@
  *   time: number,
  *   sellPrice?: number|null,
  *   sellTime?: number|null,
+ *   staked?: boolean,
  * }} Trade
  *
  * @typedef {{
@@ -36,18 +37,28 @@ export function isOpen(trade) {
   return trade.sellPrice == null || Number.isNaN(Number(trade.sellPrice));
 }
 
+export function isStaked(trade) {
+  return Boolean(trade?.staked);
+}
+
+/** Open lot that still counts in Active list and portfolio stats. */
+export function isActiveOpen(trade) {
+  return isOpen(trade) && !isStaked(trade);
+}
+
 export function lotRealizedPnl(trade) {
   if (isOpen(trade)) return null;
   return (Number(trade.sellPrice) - Number(trade.price)) * Number(trade.qty);
 }
 
 export function lotUnrealizedPnl(trade, mark) {
-  if (!isOpen(trade) || mark == null) return null;
+  if (!isActiveOpen(trade) || mark == null) return null;
   return (Number(mark) - Number(trade.price)) * Number(trade.qty);
 }
 
 /**
  * Aggregate open lots (+ realized from closed) per coin.
+ * Staked lots are excluded from all stats.
  * @param {Trade[]} trades
  * @returns {{ positions: Map<string, PositionBase>, error: string|null }}
  */
@@ -61,6 +72,8 @@ export function rebuildPositions(trades) {
     if (!(qty > 0) || !(price > 0)) {
       return { positions, error: `Invalid trade ${t.id}` };
     }
+
+    if (isStaked(t)) continue;
 
     let pos = positions.get(t.coinId);
     if (!pos) {
@@ -177,6 +190,7 @@ export function validateBuy(draft) {
 export function validateClose(trade, sellPrice) {
   if (!trade) return { ok: false, message: 'Trade not found' };
   if (!isOpen(trade)) return { ok: false, message: 'Trade already closed' };
+  if (isStaked(trade)) return { ok: false, message: 'Unstake before selling' };
   const price = Number(sellPrice);
   if (!(price > 0)) return { ok: false, message: 'Sell price must be > 0' };
   return { ok: true, message: '' };
@@ -199,12 +213,44 @@ export function closeLot(trades, tradeId, sellPrice, sellTime = Date.now()) {
 
   const closed = {
     ...trade,
+    staked: false,
     sellPrice: Number(sellPrice),
     sellTime: Number(sellTime) || Date.now(),
   };
   const next = [...trades];
   next[idx] = closed;
   return { trades: next, error: null, closed };
+}
+
+/**
+ * @param {Trade[]} trades
+ * @param {string} tradeId
+ * @returns {{ trades: Trade[], error: string|null }}
+ */
+export function stakeLot(trades, tradeId) {
+  const idx = trades.findIndex((t) => t.id === tradeId);
+  if (idx < 0) return { trades, error: 'Trade not found' };
+  const trade = trades[idx];
+  if (!isOpen(trade)) return { trades, error: 'Only open trades can be staked' };
+  if (isStaked(trade)) return { trades, error: 'Trade already staked' };
+  const next = [...trades];
+  next[idx] = { ...trade, staked: true };
+  return { trades: next, error: null };
+}
+
+/**
+ * @param {Trade[]} trades
+ * @param {string} tradeId
+ * @returns {{ trades: Trade[], error: string|null }}
+ */
+export function unstakeLot(trades, tradeId) {
+  const idx = trades.findIndex((t) => t.id === tradeId);
+  if (idx < 0) return { trades, error: 'Trade not found' };
+  const trade = trades[idx];
+  if (!isStaked(trade)) return { trades, error: 'Trade is not staked' };
+  const next = [...trades];
+  next[idx] = { ...trade, staked: false };
+  return { trades: next, error: null };
 }
 
 /**
@@ -304,6 +350,7 @@ export function migrateLegacyTradesToLots(rows) {
     time: Number(t.time),
     sellPrice: t.sellPrice == null ? null : Number(t.sellPrice),
     sellTime: t.sellTime == null ? null : Number(t.sellTime),
+    staked: Boolean(t.staked),
   }));
 }
 
