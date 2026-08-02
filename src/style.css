@@ -212,6 +212,29 @@ option {
   color: var(--accent);
 }
 
+.trade-title-row {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.exchange-chip {
+  border: none;
+  background: transparent;
+  color: var(--muted);
+  font: inherit;
+  font-size: 11px;
+  font-weight: 500;
+  line-height: 1;
+  padding: 0;
+  cursor: pointer;
+}
+
+.exchange-chip:hover {
+  color: var(--accent);
+}
+
 .active-list {
   list-style: none;
   margin: 0;
@@ -604,6 +627,17 @@ main {
 .dialog input[type="number"]:read-only {
   opacity: 0.75;
   color: var(--muted);
+}
+
+.dialog select {
+  width: 100%;
+  padding: 10px 12px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: var(--bg);
+  color: var(--text);
+  font-size: 14px;
+  outline: none;
 }
 
 .field {

@@ -2,6 +2,9 @@
  * Lot-based spot portfolio: each buy is a lot; sell closes that lot in place.
  */
 
+/** @type {readonly string[]} */
+export const EXCHANGES = Object.freeze(['OKX', 'Bitget', 'Gate']);
+
 /**
  * @typedef {{
  *   id: string,
@@ -13,6 +16,7 @@
  *   sellPrice?: number|null,
  *   sellTime?: number|null,
  *   staked?: boolean,
+ *   exchange?: string|null,
  * }} Trade
  *
  * @typedef {{
@@ -32,6 +36,25 @@
  *   mark: number|null,
  * }} Position
  */
+
+/**
+ * @param {unknown} value
+ * @returns {string|null}
+ */
+export function normalizeExchange(value) {
+  if (value == null || value === '') return null;
+  const s = String(value).trim();
+  return EXCHANGES.includes(s) ? s : null;
+}
+
+/**
+ * Default exchange for new buys when none saved yet.
+ * @param {unknown} value
+ * @returns {string}
+ */
+export function defaultExchange(value) {
+  return normalizeExchange(value) || EXCHANGES[0];
+}
 
 export function isOpen(trade) {
   return trade.sellPrice == null || Number.isNaN(Number(trade.sellPrice));
@@ -254,6 +277,22 @@ export function unstakeLot(trades, tradeId) {
 }
 
 /**
+ * @param {Trade[]} trades
+ * @param {string} tradeId
+ * @param {unknown} exchange
+ * @returns {{ trades: Trade[], error: string|null }}
+ */
+export function setTradeExchange(trades, tradeId, exchange) {
+  const idx = trades.findIndex((t) => t.id === tradeId);
+  if (idx < 0) return { trades, error: 'Trade not found' };
+  const normalized = normalizeExchange(exchange);
+  if (!normalized) return { trades, error: 'Choose OKX, Bitget, or Gate' };
+  const next = [...trades];
+  next[idx] = { ...trades[idx], exchange: normalized };
+  return { trades: next, error: null };
+}
+
+/**
  * Normalize legacy buy/sell rows into lot model (FIFO match sells onto buys).
  * @param {Array<Trade & { side?: string }>} rows
  * @returns {Trade[]}
@@ -351,6 +390,7 @@ export function migrateLegacyTradesToLots(rows) {
     sellPrice: t.sellPrice == null ? null : Number(t.sellPrice),
     sellTime: t.sellTime == null ? null : Number(t.sellTime),
     staked: Boolean(t.staked),
+    exchange: normalizeExchange(t.exchange),
   }));
 }
 

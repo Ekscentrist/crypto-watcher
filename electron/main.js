@@ -11,6 +11,7 @@ import {
   saveCoins,
   saveTrades,
   setAlwaysOnTopPref,
+  setLastExchange,
   setPeakEquity,
 } from './db.js';
 
@@ -70,6 +71,7 @@ ipcMain.handle('db:get-path', () => getDbPath());
 ipcMain.handle('db:save-coins', (_e, coins) => saveCoins(coins));
 ipcMain.handle('db:save-trades', (_e, trades) => saveTrades(trades));
 ipcMain.handle('db:set-peak', (_e, value) => setPeakEquity(value));
+ipcMain.handle('db:set-last-exchange', (_e, value) => setLastExchange(value));
 ipcMain.handle('db:migrate-local', (_e, payload) => {
   const result = migrateFromLocalStorage(payload);
   return ensureCoins(DEFAULT_COINS);

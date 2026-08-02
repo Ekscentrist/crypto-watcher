@@ -2,12 +2,16 @@ import {
   applyMarks,
   closeLot,
   computeSummary,
+  defaultExchange,
+  EXCHANGES,
   isActiveOpen,
   isOpen,
   isStaked,
   lotRealizedPnl,
   lotUnrealizedPnl,
+  normalizeExchange,
   rebuildPositions,
+  setTradeExchange,
   stakeLot,
   unstakeLot,
   validateBuy,
@@ -64,6 +68,14 @@ const tradeSuccess = document.getElementById('tradeSuccess');
 const tradeQtyField = document.getElementById('tradeQtyField');
 const tradePriceLabel = document.getElementById('tradePriceLabel');
 const tradeSubmit = document.getElementById('tradeSubmit');
+const tradeExchangeField = document.getElementById('tradeExchangeField');
+const tradeExchange = document.getElementById('tradeExchange');
+const exchangeDialog = document.getElementById('exchangeDialog');
+const exchangeForm = document.getElementById('exchangeForm');
+const exchangeSelect = document.getElementById('exchangeSelect');
+const exchangeError = document.getElementById('exchangeError');
+const exchangeCancel = document.getElementById('exchangeCancel');
+const exchangeSubmit = document.getElementById('exchangeSubmit');
 const confirmDialog = document.getElementById('confirmDialog');
 const confirmForm = document.getElementById('confirmForm');
 const confirmMessage = document.getElementById('confirmMessage');
@@ -74,6 +86,8 @@ let coins = [];
 /** @type {import('./portfolio.js').Trade[]} */
 let trades = [];
 let dbPath = '';
+/** @type {string} */
+let lastExchange = EXCHANGES[0];
 /** @type {Map<string, any>} */
 let marketById = new Map();
 /** @type {Map<string, import('./portfolio.js').Position>} */
@@ -87,12 +101,16 @@ let fetching = false;
 let currentPage = 'prices';
 /** @type {string | null} */
 let portfolioFilterCoinId = null;
+/** @type {string | null} */
+let portfolioFilterExchange = null;
 /** @type {'buy' | 'close'} */
 let tradeMode = 'buy';
 /** @type {{ id: string, symbol: string, name: string } | null} */
 let tradeTarget = null;
 /** @type {string | null} */
 let closingTradeId = null;
+/** @type {string | null} */
+let editingExchangeTradeId = null;
 /** @type {string | null} */
 let dragCoinId = null;
 /** @type {'before' | 'after' | null} */
@@ -105,6 +123,30 @@ function applyState(state) {
   dbPath = state.dbPath || dbPath;
   if (typeof state.alwaysOnTop === 'boolean') {
     alwaysOnTopEl.checked = state.alwaysOnTop;
+  }
+  if (state.lastExchange != null) {
+    lastExchange = defaultExchange(state.lastExchange);
+  }
+}
+
+function fillExchangeSelect(selectEl, selected) {
+  if (!selectEl) return;
+  const value = defaultExchange(selected);
+  selectEl.innerHTML = '';
+  for (const name of EXCHANGES) {
+    const opt = document.createElement('option');
+    opt.value = name;
+    opt.textContent = name;
+    if (name === value) opt.selected = true;
+    selectEl.appendChild(opt);
+  }
+}
+
+async function persistLastExchange(value) {
+  const next = defaultExchange(value);
+  lastExchange = next;
+  if (window.cryptoWatcher?.db?.setLastExchange) {
+    await window.cryptoWatcher.db.setLastExchange(next);
   }
 }
 
@@ -259,10 +301,9 @@ function refreshPortfolio() {
   positionsById = applyMarks(positions, marks);
 
   const useFilter =
-    (currentPage === 'portfolio' || currentPage === 'staked') && portfolioFilterCoinId;
-  const scopedTrades = useFilter
-    ? trades.filter((t) => t.coinId === portfolioFilterCoinId)
-    : trades;
+    (currentPage === 'portfolio' || currentPage === 'staked') &&
+    (portfolioFilterCoinId || portfolioFilterExchange);
+  const scopedTrades = useFilter ? scopeTrades(trades) : trades;
   const scoped = rebuildPositions(scopedTrades);
   if (scoped.error) console.warn(scoped.error);
   const summary = computeSummary(applyMarks(scoped.positions, marks));
@@ -277,39 +318,79 @@ function refreshViews() {
   renderStaked();
 }
 
-function updatePortfolioFilterBar() {
-  if (!portfolioFilterBar) return;
-  if (currentPage !== 'portfolio' || !portfolioFilterCoinId) {
-    portfolioFilterBar.classList.add('hidden');
+function scopeTrades(list) {
+  let out = list;
+  if (portfolioFilterCoinId) {
+    out = out.filter((t) => t.coinId === portfolioFilterCoinId);
+  }
+  if (portfolioFilterExchange) {
+    out = out.filter((t) => normalizeExchange(t.exchange) === portfolioFilterExchange);
+  }
+  return out;
+}
+
+function hasListFilter() {
+  return Boolean(portfolioFilterCoinId || portfolioFilterExchange);
+}
+
+function filterBarParts() {
+  const parts = [];
+  if (portfolioFilterCoinId) {
+    const coin = coins.find((c) => c.id === portfolioFilterCoinId);
+    const label = (coin?.symbol || portfolioFilterCoinId).toUpperCase();
+    const name = coin?.name || portfolioFilterCoinId;
+    parts.push(`${label} · ${name}`);
+  }
+  if (portfolioFilterExchange) {
+    parts.push(portfolioFilterExchange);
+  }
+  return parts;
+}
+
+function updateFilterBar(bar, labelEl, clearBtn, page) {
+  if (!bar) return;
+  if (currentPage !== page || !hasListFilter()) {
+    bar.classList.add('hidden');
     return;
   }
-  const coin = coins.find((c) => c.id === portfolioFilterCoinId);
-  const label = (coin?.symbol || portfolioFilterCoinId).toUpperCase();
-  const name = coin?.name || portfolioFilterCoinId;
-  portfolioFilterLabel.textContent = `${label} · ${name}`;
-  portfolioFilterBar.classList.remove('hidden');
+  labelEl.textContent = filterBarParts().join(' · ');
+  if (clearBtn) {
+    clearBtn.textContent =
+      portfolioFilterCoinId && portfolioFilterExchange
+        ? 'Clear filters'
+        : portfolioFilterExchange
+          ? 'All exchanges'
+          : 'All coins';
+  }
+  bar.classList.remove('hidden');
+}
+
+function updatePortfolioFilterBar() {
+  updateFilterBar(portfolioFilterBar, portfolioFilterLabel, portfolioFilterClear, 'portfolio');
 }
 
 function updateStakedFilterBar() {
-  if (!stakedFilterBar) return;
-  if (currentPage !== 'staked' || !portfolioFilterCoinId) {
-    stakedFilterBar.classList.add('hidden');
-    return;
-  }
-  const coin = coins.find((c) => c.id === portfolioFilterCoinId);
-  const label = (coin?.symbol || portfolioFilterCoinId).toUpperCase();
-  const name = coin?.name || portfolioFilterCoinId;
-  stakedFilterLabel.textContent = `${label} · ${name}`;
-  stakedFilterBar.classList.remove('hidden');
+  updateFilterBar(stakedFilterBar, stakedFilterLabel, stakedFilterClear, 'staked');
 }
 
 function openCoinPortfolio(coinId) {
   portfolioFilterCoinId = coinId;
+  portfolioFilterExchange = null;
   showPage('portfolio', { keepFilter: true });
+}
+
+function filterByExchange(exchange) {
+  const ex = normalizeExchange(exchange);
+  if (!ex) return;
+  portfolioFilterExchange = ex;
+  if (currentPage === 'portfolio') renderPortfolio();
+  else if (currentPage === 'staked') renderStaked();
+  else refreshPortfolio();
 }
 
 function clearPortfolioFilter() {
   portfolioFilterCoinId = null;
+  portfolioFilterExchange = null;
   if (currentPage === 'portfolio') {
     renderPortfolio();
   } else if (currentPage === 'staked') {
@@ -327,6 +408,7 @@ function showPage(page, { keepFilter = false } = {}) {
   }
   if ((currentPage === 'portfolio' || currentPage === 'staked') && !keepFilter) {
     portfolioFilterCoinId = null;
+    portfolioFilterExchange = null;
   }
   pagePricesEl.classList.toggle('hidden', currentPage !== 'prices');
   pagePortfolioEl.classList.toggle('hidden', currentPage !== 'portfolio');
@@ -341,14 +423,51 @@ function showPage(page, { keepFilter = false } = {}) {
   else refreshPortfolio();
 }
 
+function createExchangeChip(lot) {
+  const ex = normalizeExchange(lot?.exchange);
+  if (!ex) return null;
+  const btn = document.createElement('button');
+  btn.type = 'button';
+  btn.className = 'exchange-chip';
+  btn.textContent = ex;
+  btn.title = `Show only ${ex}`;
+  btn.addEventListener('click', (e) => {
+    e.stopPropagation();
+    filterByExchange(ex);
+  });
+  return btn;
+}
+
+function createTradeTitle(prefix, symbol, lot) {
+  const row = document.createElement('div');
+  row.className = 'coin-symbol trade-title-row';
+  const text = document.createElement('span');
+  text.textContent = `${prefix} ${symbol}`;
+  row.appendChild(text);
+  const chip = createExchangeChip(lot);
+  if (chip) row.appendChild(chip);
+  return row;
+}
+
+function emptyFilterMessage(kind) {
+  if (portfolioFilterCoinId && portfolioFilterExchange) {
+    return `No ${kind} for this coin on ${portfolioFilterExchange}.`;
+  }
+  if (portfolioFilterExchange) {
+    return `No ${kind} on ${portfolioFilterExchange}.`;
+  }
+  if (portfolioFilterCoinId) {
+    return `No ${kind} for this coin.`;
+  }
+  return null;
+}
+
 function renderPortfolio() {
   refreshPortfolio();
   activeListEl.innerHTML = '';
   historyListEl.innerHTML = '';
 
-  const scoped = portfolioFilterCoinId
-    ? trades.filter((t) => t.coinId === portfolioFilterCoinId)
-    : trades;
+  const scoped = scopeTrades(trades);
 
   const openLots = scoped.filter(isActiveOpen).sort((a, b) => b.time - a.time);
   const closedLots = scoped
@@ -357,12 +476,10 @@ function renderPortfolio() {
 
   activeEmptyEl.classList.toggle('hidden', openLots.length > 0);
   historyEmptyEl.classList.toggle('hidden', closedLots.length > 0);
-  activeEmptyEl.textContent = portfolioFilterCoinId
-    ? 'No open buys for this coin.'
-    : 'No open buys. Add a Buy from the Prices tab.';
-  historyEmptyEl.textContent = portfolioFilterCoinId
-    ? 'No closed trades for this coin.'
-    : 'No closed trades yet.';
+  activeEmptyEl.textContent =
+    emptyFilterMessage('open buys') || 'No open buys. Add a Buy from the Prices tab.';
+  historyEmptyEl.textContent =
+    emptyFilterMessage('closed trades') || 'No closed trades yet.';
 
   for (const lot of openLots) {
     const coin = coins.find((c) => c.id === lot.coinId);
@@ -373,13 +490,20 @@ function renderPortfolio() {
 
     const head = document.createElement('div');
     head.className = 'active-head';
-    head.innerHTML = `
-      <div>
-        <div class="coin-symbol">BUY ${(coin?.symbol || lot.symbol || '').toUpperCase()}</div>
-        <div class="coin-name">${escapeHtml(coin?.name || lot.coinId)} · ${escapeHtml(new Date(lot.time).toLocaleString())}</div>
-      </div>
-      <div class="active-mark">${formatPrice(mark)}</div>
-    `;
+
+    const headLeft = document.createElement('div');
+    headLeft.appendChild(
+      createTradeTitle('BUY', (coin?.symbol || lot.symbol || '').toUpperCase(), lot),
+    );
+    const nameLine = document.createElement('div');
+    nameLine.className = 'coin-name';
+    nameLine.textContent = `${coin?.name || lot.coinId} · ${new Date(lot.time).toLocaleString()}`;
+    headLeft.appendChild(nameLine);
+
+    const markEl = document.createElement('div');
+    markEl.className = 'active-mark';
+    markEl.textContent = formatPrice(mark);
+    head.append(headLeft, markEl);
 
     const stats = document.createElement('div');
     stats.className = 'active-stats';
@@ -412,6 +536,13 @@ function renderPortfolio() {
       refreshViews();
     });
 
+    const editBtn = document.createElement('button');
+    editBtn.type = 'button';
+    editBtn.className = 'btn tiny';
+    editBtn.textContent = 'Edit';
+    editBtn.title = 'Edit exchange';
+    editBtn.addEventListener('click', () => openExchangeDialog(lot));
+
     const delBtn = document.createElement('button');
     delBtn.type = 'button';
     delBtn.className = 'btn tiny';
@@ -427,7 +558,7 @@ function renderPortfolio() {
       refreshViews();
     });
 
-    actions.append(sellBtn, stakeBtn, delBtn);
+    actions.append(sellBtn, stakeBtn, editBtn, delBtn);
     li.append(head, stats, actions);
     activeListEl.appendChild(li);
   }
@@ -439,13 +570,24 @@ function renderPortfolio() {
     const label = (coin?.symbol || lot.symbol || lot.coinId).toUpperCase();
     const realized = lotRealizedPnl(lot);
     const when = new Date(lot.sellTime || lot.time).toLocaleString();
-    li.innerHTML = `
-      <div>
-        <div>${escapeHtml(label)} · ${formatQty(lot.qty)}</div>
-        <div class="meta">buy ${formatPrice(lot.price)} → sell ${formatPrice(lot.sellPrice)} · ${escapeHtml(when)}</div>
-      </div>
-      <div class="pnl ${pnlClass(realized)}">${formatMoney(realized)}</div>
-    `;
+
+    const left = document.createElement('div');
+    const title = document.createElement('div');
+    title.className = 'trade-title-row';
+    const titleText = document.createElement('span');
+    titleText.textContent = `${label} · ${formatQty(lot.qty)}`;
+    title.appendChild(titleText);
+    const chip = createExchangeChip(lot);
+    if (chip) title.appendChild(chip);
+    const meta = document.createElement('div');
+    meta.className = 'meta';
+    meta.textContent = `buy ${formatPrice(lot.price)} → sell ${formatPrice(lot.sellPrice)} · ${when}`;
+    left.append(title, meta);
+
+    const pnl = document.createElement('div');
+    pnl.className = `pnl ${pnlClass(realized)}`;
+    pnl.textContent = formatMoney(realized);
+
     const del = document.createElement('button');
     del.type = 'button';
     del.className = 'remove-btn';
@@ -456,7 +598,7 @@ function renderPortfolio() {
       await saveTrades();
       refreshViews();
     });
-    li.appendChild(del);
+    li.append(left, pnl, del);
     historyListEl.appendChild(li);
   }
 }
@@ -466,18 +608,15 @@ function renderStaked() {
   if (!stakedListEl) return;
   stakedListEl.innerHTML = '';
 
-  const scoped = portfolioFilterCoinId
-    ? trades.filter((t) => t.coinId === portfolioFilterCoinId)
-    : trades;
+  const scoped = scopeTrades(trades);
 
   const stakedLots = scoped
     .filter((t) => isOpen(t) && isStaked(t))
     .sort((a, b) => b.time - a.time);
 
   stakedEmptyEl.classList.toggle('hidden', stakedLots.length > 0);
-  stakedEmptyEl.textContent = portfolioFilterCoinId
-    ? 'No staked trades for this coin.'
-    : 'No staked trades.';
+  stakedEmptyEl.textContent =
+    emptyFilterMessage('staked trades') || 'No staked trades.';
 
   for (const lot of stakedLots) {
     const coin = coins.find((c) => c.id === lot.coinId);
@@ -489,13 +628,20 @@ function renderStaked() {
 
     const head = document.createElement('div');
     head.className = 'active-head';
-    head.innerHTML = `
-      <div>
-        <div class="coin-symbol">STAKED ${(coin?.symbol || lot.symbol || '').toUpperCase()}</div>
-        <div class="coin-name">${escapeHtml(coin?.name || lot.coinId)} · ${escapeHtml(new Date(lot.time).toLocaleString())}</div>
-      </div>
-      <div class="active-mark">${formatPrice(mark)}</div>
-    `;
+
+    const headLeft = document.createElement('div');
+    headLeft.appendChild(
+      createTradeTitle('STAKED', (coin?.symbol || lot.symbol || '').toUpperCase(), lot),
+    );
+    const nameLine = document.createElement('div');
+    nameLine.className = 'coin-name';
+    nameLine.textContent = `${coin?.name || lot.coinId} · ${new Date(lot.time).toLocaleString()}`;
+    headLeft.appendChild(nameLine);
+
+    const markEl = document.createElement('div');
+    markEl.className = 'active-mark';
+    markEl.textContent = formatPrice(mark);
+    head.append(headLeft, markEl);
 
     const stats = document.createElement('div');
     stats.className = 'active-stats';
@@ -522,6 +668,13 @@ function renderStaked() {
       refreshViews();
     });
 
+    const editBtn = document.createElement('button');
+    editBtn.type = 'button';
+    editBtn.className = 'btn tiny';
+    editBtn.textContent = 'Edit';
+    editBtn.title = 'Edit exchange';
+    editBtn.addEventListener('click', () => openExchangeDialog(lot));
+
     const delBtn = document.createElement('button');
     delBtn.type = 'button';
     delBtn.className = 'btn tiny';
@@ -537,7 +690,7 @@ function renderStaked() {
       refreshViews();
     });
 
-    actions.append(unstakeBtn, delBtn);
+    actions.append(unstakeBtn, editBtn, delBtn);
     li.append(head, stats, actions);
     stakedListEl.appendChild(li);
   }
@@ -737,6 +890,9 @@ function openBuyDialog(coin) {
   tradeSubmit.disabled = false;
   tradeSubmit.classList.remove('flash-ok');
   tradeQtyField.classList.remove('hidden');
+  tradeExchangeField.classList.remove('hidden');
+  tradeExchange.required = true;
+  fillExchangeSelect(tradeExchange, lastExchange);
   tradeQty.value = '';
   tradeQty.readOnly = false;
   tradeQty.disabled = false;
@@ -767,6 +923,8 @@ function openCloseDialog(lot) {
   tradeSubmit.disabled = false;
   tradeSubmit.classList.remove('flash-ok');
   tradeQtyField.classList.remove('hidden');
+  tradeExchangeField.classList.add('hidden');
+  tradeExchange.required = false;
   tradeQty.value = String(lot.qty);
   tradeQty.readOnly = true;
   const mark = marketById.get(lot.coinId)?.current_price;
@@ -827,6 +985,55 @@ function showTradeSuccess(msg) {
   tradeSuccess.classList.remove('hidden');
 }
 
+function hideExchangeError() {
+  exchangeError.classList.add('hidden');
+  exchangeError.textContent = '';
+}
+
+function showExchangeError(msg) {
+  exchangeError.textContent = msg;
+  exchangeError.classList.remove('hidden');
+}
+
+function openExchangeDialog(lot) {
+  editingExchangeTradeId = lot.id;
+  fillExchangeSelect(exchangeSelect, lot.exchange || lastExchange);
+  hideExchangeError();
+  exchangeDialog.showModal();
+  requestAnimationFrame(() => exchangeSelect.focus());
+}
+
+exchangeForm.addEventListener('submit', async (e) => {
+  e.preventDefault();
+  if (!editingExchangeTradeId) return;
+  const exchange = normalizeExchange(exchangeSelect.value);
+  if (!exchange) {
+    showExchangeError('Choose OKX, Bitget, or Gate');
+    return;
+  }
+  exchangeSubmit.disabled = true;
+  try {
+    const result = setTradeExchange(trades, editingExchangeTradeId, exchange);
+    if (result.error) {
+      showExchangeError(result.error);
+      return;
+    }
+    trades = result.trades;
+    await saveTrades();
+    await persistLastExchange(exchange);
+    editingExchangeTradeId = null;
+    exchangeDialog.close();
+    refreshViews();
+  } finally {
+    exchangeSubmit.disabled = false;
+  }
+});
+
+exchangeCancel.addEventListener('click', () => {
+  editingExchangeTradeId = null;
+  exchangeDialog.close();
+});
+
 tradeForm.addEventListener('submit', async (e) => {
   e.preventDefault();
 
@@ -861,9 +1068,14 @@ tradeForm.addEventListener('submit', async (e) => {
   if (!tradeTarget) return;
   const qty = Number(tradeQty.value);
   const price = Number(tradePrice.value);
+  const exchange = normalizeExchange(tradeExchange.value);
   const check = validateBuy({ qty, price });
   if (!check.ok) {
     showTradeError(check.message);
+    return;
+  }
+  if (!exchange) {
+    showTradeError('Choose OKX, Bitget, or Gate');
     return;
   }
 
@@ -880,8 +1092,10 @@ tradeForm.addEventListener('submit', async (e) => {
       sellPrice: null,
       sellTime: null,
       staked: false,
+      exchange,
     });
     await saveTrades();
+    await persistLastExchange(exchange);
     showTradeSuccess(
       `Bought ${formatQty(qty)} ${tradeTarget.symbol.toUpperCase()} @ ${formatPrice(price)}`,
     );

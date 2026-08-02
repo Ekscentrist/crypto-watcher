@@ -4,7 +4,7 @@ import { createRequire } from 'node:module';
 import { fileURLToPath } from 'node:url';
 import { app } from 'electron';
 import initSqlJs from 'sql.js';
-import { migrateLegacyTradesToLots } from '../src/portfolio.js';
+import { migrateLegacyTradesToLots, normalizeExchange, defaultExchange } from '../src/portfolio.js';
 
 const require = createRequire(import.meta.url);
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -99,6 +99,9 @@ function migrateTradesSchemaToLots() {
   if (!cols.includes('staked')) {
     run('ALTER TABLE trades ADD COLUMN staked INTEGER NOT NULL DEFAULT 0');
   }
+  if (!cols.includes('exchange')) {
+    run('ALTER TABLE trades ADD COLUMN exchange TEXT');
+  }
 
   if (getMeta('lots_model_v1', '0') === '1') {
     persist();
@@ -107,7 +110,7 @@ function migrateTradesSchemaToLots() {
 
   const raw = all(
     `SELECT id, coin_id AS coinId, symbol, side, qty, price, time,
-            sell_price AS sellPrice, sell_time AS sellTime, staked
+            sell_price AS sellPrice, sell_time AS sellTime, staked, exchange
      FROM trades`,
   );
 
@@ -122,6 +125,7 @@ function migrateTradesSchemaToLots() {
     sellPrice: t.sellPrice == null || t.sellPrice === '' ? null : Number(t.sellPrice),
     sellTime: t.sellTime == null || t.sellTime === '' ? null : Number(t.sellTime),
     staked: Boolean(Number(t.staked)),
+    exchange: t.exchange == null || t.exchange === '' ? null : String(t.exchange),
   }));
 
   const hasLegacySells = mapped.some((t) => t.side === 'sell');
@@ -139,12 +143,13 @@ function migrateTradesSchemaToLots() {
           sellPrice: t.sellPrice,
           sellTime: t.sellTime,
           staked: Boolean(t.staked),
+          exchange: t.exchange,
         }));
 
   run('DELETE FROM trades');
   for (const t of lots) {
     run(
-      'INSERT INTO trades (id, coin_id, symbol, side, qty, price, time, sell_price, sell_time, staked) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+      'INSERT INTO trades (id, coin_id, symbol, side, qty, price, time, sell_price, sell_time, staked, exchange) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
       [
         t.id,
         t.coinId,
@@ -156,6 +161,7 @@ function migrateTradesSchemaToLots() {
         t.sellPrice == null ? null : Number(t.sellPrice),
         t.sellTime == null ? null : Number(t.sellTime),
         t.staked ? 1 : 0,
+        t.exchange == null || t.exchange === '' ? null : String(t.exchange),
       ],
     );
   }
@@ -201,7 +207,8 @@ export async function openDatabase() {
       time INTEGER NOT NULL,
       sell_price REAL,
       sell_time INTEGER,
-      staked INTEGER NOT NULL DEFAULT 0
+      staked INTEGER NOT NULL DEFAULT 0,
+      exchange TEXT
     );
   `);
   run(`
@@ -250,7 +257,7 @@ export function getState() {
   );
   const tradeRows = all(
     `SELECT id, coin_id AS coinId, symbol, qty, price, time,
-            sell_price AS sellPrice, sell_time AS sellTime, staked
+            sell_price AS sellPrice, sell_time AS sellTime, staked, exchange
      FROM trades
      ORDER BY time ASC, id ASC`,
   );
@@ -258,12 +265,14 @@ export function getState() {
   const peak = Number(getMeta('peak_equity', '0')) || 0;
   const alwaysOnTop = getMeta('always_on_top', '0') === '1';
   const migrated = getMeta('migrated_from_localstorage', '0') === '1';
+  const lastExchange = defaultExchange(getMeta('last_exchange', null));
 
   return {
     dbPath: getDbPath(),
     migrated,
     peakEquity: peak,
     alwaysOnTop,
+    lastExchange,
     coins: coinRows.map((c) => ({
       id: String(c.id),
       symbol: String(c.symbol),
@@ -279,6 +288,7 @@ export function getState() {
       sellPrice: t.sellPrice == null || t.sellPrice === '' ? null : Number(t.sellPrice),
       sellTime: t.sellTime == null || t.sellTime === '' ? null : Number(t.sellTime),
       staked: Boolean(Number(t.staked)),
+      exchange: normalizeExchange(t.exchange),
     })),
   };
 }
@@ -303,7 +313,7 @@ export function saveTrades(trades) {
   const list = Array.isArray(trades) ? trades : [];
   for (const t of list) {
     run(
-      'INSERT INTO trades (id, coin_id, symbol, side, qty, price, time, sell_price, sell_time, staked) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+      'INSERT INTO trades (id, coin_id, symbol, side, qty, price, time, sell_price, sell_time, staked, exchange) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
       [
         String(t.id),
         String(t.coinId),
@@ -315,6 +325,7 @@ export function saveTrades(trades) {
         t.sellPrice == null || t.sellPrice === '' ? null : Number(t.sellPrice),
         t.sellTime == null || t.sellTime === '' ? null : Number(t.sellTime),
         t.staked ? 1 : 0,
+        normalizeExchange(t.exchange),
       ],
     );
   }
@@ -330,6 +341,12 @@ export function setPeakEquity(value) {
 export function setAlwaysOnTopPref(enabled) {
   setMeta('always_on_top', enabled ? '1' : '0');
   return Boolean(enabled);
+}
+
+export function setLastExchange(value) {
+  const exchange = defaultExchange(value);
+  setMeta('last_exchange', exchange);
+  return exchange;
 }
 
 export function migrateFromLocalStorage(payload) {
@@ -357,6 +374,7 @@ export function migrateFromLocalStorage(payload) {
       sellPrice: t.sellPrice == null ? null : Number(t.sellPrice),
       sellTime: t.sellTime == null ? null : Number(t.sellTime),
       staked: Boolean(t.staked),
+      exchange: normalizeExchange(t.exchange),
     }));
   }
 

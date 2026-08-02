@@ -112,12 +112,31 @@
           <span id="tradePriceLabel">Price (USD)</span>
           <input type="number" id="tradePrice" step="any" min="0" required placeholder="65000" />
         </label>
+        <label class="field" id="tradeExchangeField">
+          <span>Exchange</span>
+          <select id="tradeExchange" required></select>
+        </label>
         <p id="tradePreview" class="trade-preview hidden"></p>
         <p id="tradeSuccess" class="trade-success hidden"></p>
         <p id="tradeError" class="form-error hidden"></p>
         <div class="dialog-actions">
           <button type="button" id="tradeCancel" class="btn ghost">Cancel</button>
           <button type="submit" class="btn primary" id="tradeSubmit">Save</button>
+        </div>
+      </form>
+    </dialog>
+
+    <dialog id="exchangeDialog" class="dialog">
+      <form id="exchangeForm">
+        <h2>Exchange</h2>
+        <label class="field">
+          <span>Exchange</span>
+          <select id="exchangeSelect" required></select>
+        </label>
+        <p id="exchangeError" class="form-error hidden"></p>
+        <div class="dialog-actions">
+          <button type="button" id="exchangeCancel" class="btn ghost">Cancel</button>
+          <button type="submit" class="btn primary" id="exchangeSubmit">Save</button>
         </div>
       </form>
     </dialog>

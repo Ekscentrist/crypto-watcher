@@ -8,6 +8,7 @@ contextBridge.exposeInMainWorld('cryptoWatcher', {
     saveCoins: (coins) => ipcRenderer.invoke('db:save-coins', coins),
     saveTrades: (trades) => ipcRenderer.invoke('db:save-trades', trades),
     setPeak: (value) => ipcRenderer.invoke('db:set-peak', value),
+    setLastExchange: (value) => ipcRenderer.invoke('db:set-last-exchange', value),
     migrateLocal: (payload) => ipcRenderer.invoke('db:migrate-local', payload),
     ensureDefaults: () => ipcRenderer.invoke('db:ensure-defaults'),
   },
